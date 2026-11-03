@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: talentra
+      POSTGRES_USER: talentra
+      POSTGRES_PASSWORD: talentra
+    volumes: [postgres_data:/var/lib/postgresql/data]
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://talentra:talentra@db:5432/talentra
+      JWT_SECRET: development-only-change-me
+    ports: ["8000:8000"]
+    depends_on: [db]
+  frontend:
+    build: ./frontend
+    environment: [NEXT_PUBLIC_API_URL=http://localhost:8000]
+    ports: ["3000:3000"]
+    depends_on: [backend]
+volumes:
+  postgres_data:
