@@ -1,6 +1,66 @@
 'use client';
-import {useEffect,useState} from 'react';
-const API=process.env.NEXT_PUBLIC_API_URL||'http://localhost:8000';
-type Candidate={id:string;name:string;role:string;experience:number;skills:string[];notice_days:number;score:number;stage:string;confidence:string};
-export default function Home(){const [token,setToken]=useState('');const [role,setRole]=useState('');const [email,setEmail]=useState('recruiter@talentra.demo');const [password,setPassword]=useState('DemoPass123!');const [data,setData]=useState<any>();const [people,setPeople]=useState<Candidate[]>([]);const [selected,setSelected]=useState<any>();const [error,setError]=useState('');const auth={Authorization:`Bearer ${token}`}; async function login(e:React.FormEvent){e.preventDefault();let r=await fetch(API+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok)return setError('Check the demo credentials.');let x=await r.json();setToken(x.access_token);setRole(x.role)} async function load(){let [a,b]=await Promise.all([fetch(API+'/api/dashboard',{headers:auth}),fetch(API+'/api/candidates',{headers:auth})]);setData(await a.json());setPeople(await b.json())}useEffect(()=>{if(token&&role==='RECRUITER')load()},[token,role]);async function detail(id:string){let r=await fetch(API+'/api/candidates/'+id,{headers:auth});setSelected(await r.json())}if(!token)return <main className="login"><section><p className="eyebrow">TALENTRA / SCREENING OS</p><h1>Decisions with evidence.</h1><p>AI-assisted candidate screening for teams that need clarity, speed, and control.</p></section><form onSubmit={login}><h2>Welcome back</h2><label>Email<input value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<small>{error}</small>}<button>Sign in</button><p className="hint">Try client@acme.demo for the client portal.</p></form></main>;if(role==='CLIENT')return <Client token={token}/>;return <main className="shell"><aside><b>talentra</b><nav>Overview<br/><strong>Candidates</strong><br/>Requisitions<br/>Pipeline<br/>Consent</nav><small>AI is decision support, never a hiring decision.</small></aside><section className="content"><header><div><p className="eyebrow">RECRUITER WORKSPACE</p><h1>Good morning, Maya</h1></div><button onClick={()=>setToken('')}>Sign out</button></header><div className="metrics">{data&&Object.entries(data).filter(([k])=>k!=='pipeline').map(([k,v])=><article key={k}><span>{k.replaceAll('_',' ')}</span><b>{String(v)}</b></article>)}</div><div className="notice">Every score is reproducible from the live scorecard. Open a profile to review original evidence before submitting.</div><h2>Ranked candidates</h2><div className="table">{people.map(p=><button className="row" key={p.id} onClick={()=>detail(p.id)}><span><b>{p.name}</b><small>{p.role} · {p.experience} yrs</small></span><span className="skills">{p.skills.slice(0,3).map(x=><i key={x}>{x}</i>)}</span><span>{p.notice_days}d notice</span><strong>{p.score}<small>/100</small></strong><em>{p.stage}</em></button>)}</div>{selected&&<div className="modal"><article><button className="close" onClick={()=>setSelected(null)}>×</button><p className="eyebrow">CANDIDATE REVIEW</p><h2>{selected.name}</h2><p>{selected.role} · {selected.experience} years · Consent: {selected.consent}</p><h3>{selected.score}/100 match score</h3>{Object.entries(selected.evidence).map(([key,v]:any)=><div className="evidence" key={key}><b>{key}</b><span>{v.status}</span><p>{v.quote||'No supporting evidence found in the CV.'}</p></div>)}<details><summary>Extracted CV text</summary>{selected.raw_text}</details></article></div>}</section></main>}
-function Client({token}:{token:string}){const [items,setItems]=useState<any[]>([]);useEffect(()=>{fetch(API+'/api/client/submissions',{headers:{Authorization:`Bearer ${token}`}}).then(r=>r.json()).then(setItems)},[token]);return <main className="client"><p className="eyebrow">ACME SYSTEMS</p><h1>Your submitted candidates</h1><p>Profiles are privacy-masked until you authorize an interview.</p>{items.length?items.map(x=><article key={x.id}><h2>{x.name}</h2><p>{x.role} · {x.experience} years</p><p>{x.skills.join(' · ')}</p><b>{x.score}/100 match</b></article>):<div className="empty">No candidates have been submitted for review yet.</div>}</main>}
+import {FormEvent, useCallback, useEffect, useState} from 'react';
+import {API, Auth, Ctx, setUnauthorizedHandler} from './lib';
+import Recruiter from './recruiter';
+import ClientPortal from './client';
+import {Fairness} from './views/monitoring';
+
+const KEY = 'talentra.session';
+
+export default function Home() {
+  const [auth, setAuth] = useState<Auth | null>(null);
+  const [ready, setReady] = useState(false);
+  const [toastMsg, setToastMsg] = useState<{m: string; bad?: boolean} | null>(null);
+  const signOut = useCallback(() => { try { sessionStorage.removeItem(KEY); } catch {} setAuth(null); }, []);
+  const toast = useCallback((m: string, bad = false) => { setToastMsg({m, bad}); setTimeout(() => setToastMsg(null), 4000); }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(signOut);
+    try { const s = sessionStorage.getItem(KEY); if (s) setAuth(JSON.parse(s)); } catch {}
+    setReady(true);
+  }, [signOut]);
+
+  if (!ready) return null;
+  if (!auth) return <Login onAuth={a => { try { sessionStorage.setItem(KEY, JSON.stringify(a)); } catch {} setAuth(a); }} />;
+  return (
+    <Ctx.Provider value={{auth, toast}}>
+      {toastMsg && <div className={'flash ' + (toastMsg.bad ? 'bad' : '')} role="status">{toastMsg.m}</div>}
+      {auth.role === 'CLIENT' ? <ClientPortal out={signOut} /> : auth.role === 'DELIVERY_HEAD' ? <DeliveryHead out={signOut} /> : <Recruiter out={signOut} />}
+    </Ctx.Provider>
+  );
+}
+
+function DeliveryHead({out}: {out: () => void}) {
+  return (
+    <main className="client wide">
+      <header className="top"><div><p className="eyebrow">DELIVERY HEAD</p><h1>Screening monitoring</h1></div><button onClick={out}>Sign out</button></header>
+      <Fairness />
+    </main>
+  );
+}
+
+function Login({onAuth}: {onAuth: (a: Auth) => void}) {
+  const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false);
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setErr('');
+    try {
+      const r = await fetch(API + '/api/auth/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email, password})});
+      if (!r.ok) { setErr(r.status === 429 ? 'Too many attempts. Try again in a few minutes.' : 'Check your email and password.'); return; }
+      const x = await r.json(); onAuth({token: x.access_token, role: x.role, email: x.email, org: x.org});
+    } catch { setErr('Cannot reach the Talentra API. Check that the backend is running.'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <main className="login">
+      <section><p className="eyebrow">TALENTRA / SCREENING OS</p><h1>Decisions with evidence.</h1><p>AI-assisted candidate screening for teams that need clarity, speed, and control.</p></section>
+      <form onSubmit={submit}>
+        <h2>Welcome back</h2>
+        <label>Email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
+        <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
+        {err && <small className="error" role="alert">{err}</small>}
+        <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        <p className="hint">Local demo data only (see README for the demo accounts). Disable it in production with SEED_DEMO=0.</p>
+      </form>
+    </main>
+  );
+}

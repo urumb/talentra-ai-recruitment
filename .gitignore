@@ -59,3 +59,8 @@ pnpm-debug.log*
 
 # Uploaded documents
 uploads/
+# Talentra runtime data
+uploads/
+live_uploads/
+*.db
+.env

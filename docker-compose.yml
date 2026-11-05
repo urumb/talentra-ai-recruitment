@@ -4,19 +4,37 @@ services:
     environment:
       POSTGRES_DB: talentra
       POSTGRES_USER: talentra
-      POSTGRES_PASSWORD: talentra
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-talentra}
     volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U talentra -d talentra"]
+      interval: 3s
+      retries: 20
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://talentra:talentra@db:5432/talentra
-      JWT_SECRET: development-only-change-me
+      DATABASE_URL: postgresql+psycopg://talentra:${POSTGRES_PASSWORD:-talentra}@db:5432/talentra
+      JWT_SECRET: ${JWT_SECRET:-development-only-change-me}
+      APP_ENV: ${APP_ENV:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      SEED_DEMO: ${SEED_DEMO:-1}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-DemoPass123!}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1/chat/completions}
+      UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-10}
+      PROCESS_WORKERS: ${PROCESS_WORKERS:-4}
+    volumes: [uploads:/data/uploads]
     ports: ["8000:8000"]
-    depends_on: [db]
+    depends_on:
+      db: {condition: service_healthy}
   frontend:
-    build: ./frontend
-    environment: [NEXT_PUBLIC_API_URL=http://localhost:8000]
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports: ["3000:3000"]
     depends_on: [backend]
 volumes:
   postgres_data:
+  uploads:
