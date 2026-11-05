@@ -40,10 +40,10 @@ Open http://localhost:3000 and sign in with a demo login. API docs: http://local
 
 1. Create a free key at https://console.groq.com (API Keys).
 2. Open the file `.env` in the repository root (create it by copying `.env.example` if it does not exist). It is git-ignored.
-3. Fill in these three lines (the model name must be one listed in the Groq console; `llama-3.3-70b-versatile` was valid when this was written):
+3. Fill in these three lines (the model must be one your key can use: Groq retires models, so list them with `GET https://api.groq.com/openai/v1/models`, or the console. `openai/gpt-oss-120b` was used and verified for this project):
    ```
    LLM_API_KEY=paste-your-key-here
-   LLM_MODEL=llama-3.3-70b-versatile
+   LLM_MODEL=openai/gpt-oss-120b
    LLM_BASE_URL=https://api.groq.com/openai/v1/chat/completions
    ```
 4. Restart the backend. The Requisitions screen then enables **Extract scorecard with AI** (use the "Use example JD" button to try it). Do not paste the key into any committed file.

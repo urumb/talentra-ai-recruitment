@@ -543,7 +543,7 @@ def call_llm(description):
     payload = {'model': os.environ['LLM_MODEL'], 'response_format': {'type': 'json_object'}, 'temperature': 0, 'messages': [
         {'role': 'system', 'content': 'Extract only requirements stated in the job description. Return JSON {"criteria":[{"label":str,"type":"skills|experience|notice|ctc|location|education","weight":number,"values":[str],"min":number|null,"max":number|null}]}. Use "min" (years) for experience, "max" (days) for notice and "max" (lakh per annum) for ctc. Weights must total 100. Never invent requirements.'},
         {'role': 'user', 'content': description}]}
-    request = Request(os.getenv('LLM_BASE_URL', 'https://api.openai.com/v1/chat/completions'), data=json.dumps(payload).encode(), headers={'Authorization': 'Bearer ' + os.environ['LLM_API_KEY'], 'Content-Type': 'application/json'})
+    request = Request(os.getenv('LLM_BASE_URL', 'https://api.openai.com/v1/chat/completions'), data=json.dumps(payload).encode(), headers={'Authorization': 'Bearer ' + os.environ['LLM_API_KEY'], 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Talentra/0.3 (+https://github.com/urumb/talentra-ai-recruitment)'})
     return json.loads(json.loads(urlopen(request, timeout=45).read())['choices'][0]['message']['content'])
 
 
