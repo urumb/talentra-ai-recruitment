@@ -66,7 +66,7 @@ export type Auth = {token: string; role: string; email: string; org: string};
 export const Ctx = createContext<{auth: Auth; toast: (m: string, bad?: boolean) => void}>(null as any);
 export const useApp = () => useContext(Ctx);
 
-export const STAGES = ['Screened', 'Submitted to Client', 'Shortlisted', 'Interview proposed', 'Interview scheduled', 'Offered', 'Joined', 'Rejected by Client', 'Rejected'];
+export const STAGES = ['Sourced', 'Screened', 'Submitted to Client', 'Shortlisted', 'Interview proposed', 'Interview scheduled', 'Offered', 'Joined', 'Rejected by Client', 'Rejected'];
 export const fmtDate = (s?: string) => s ? new Date(s).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}) : '';
 export const label = (s: string) => s.replaceAll('_', ' ');
 
@@ -82,12 +82,12 @@ export function Modal({title, onClose, children}: {title: string; onClose: () =>
 }
 
 /** Fetches a protected document with the bearer token and shows PDFs inline; DOCX is offered as a download. */
-export function DocPreview({id, filename}: {id: string; filename?: string}) {
+export function DocPreview({id, filename, onLoaded}: {id: string; filename?: string; onLoaded?: () => void}) {
   const {auth} = useApp();
   const [url, setUrl] = useState(''); const [type, setType] = useState(''); const [err, setErr] = useState('');
   useEffect(() => {
     let u = ''; let alive = true;
-    fetchBlob(auth.token, '/api/documents/' + id).then(b => { if (!alive) return; u = URL.createObjectURL(b); setUrl(u); setType(b.type); }).catch(e => alive && setErr(e.message));
+    fetchBlob(auth.token, '/api/documents/' + id).then(b => { if (!alive) return; u = URL.createObjectURL(b); setUrl(u); setType(b.type); onLoaded?.(); }).catch(e => alive && setErr(e.message));
     return () => { alive = false; if (u) URL.revokeObjectURL(u); };
   }, [id, auth.token]);
   if (err) return <ErrorBox msg={err} />;

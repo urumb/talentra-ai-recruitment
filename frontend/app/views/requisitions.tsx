@@ -4,7 +4,7 @@ import {Empty, ErrorBox, Spinner, call, send, useApp, useLoad} from '../lib';
 
 type Crit = {label: string; type: string; weight: number; values?: string[]; min?: number | null; max?: number | null};
 type Req = {id: string; title: string; client: string; location: string; description: string; candidates: number; scorecard: {criteria: Crit[]}};
-const TYPES = ['skills', 'experience', 'notice', 'location', 'education'];
+const TYPES = ['skills', 'experience', 'notice', 'ctc', 'location', 'education'];
 const DEFAULT: Crit[] = [{label: 'Required skills', type: 'skills', weight: 60, values: []}, {label: 'Experience', type: 'experience', weight: 25, min: 3}, {label: 'Notice period', type: 'notice', weight: 15, max: 60}];
 
 export default function Requisitions() {
@@ -31,7 +31,7 @@ export default function Requisitions() {
 
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy('save');
-    const criteria = crit.map(x => ({...x, weight: Number(x.weight), values: x.values || [], min: x.type === 'experience' ? Number(x.min) || 0 : null, max: x.type === 'notice' && x.max != null && x.max !== ('' as any) ? Number(x.max) : null}));
+    const criteria = crit.map(x => ({...x, weight: Number(x.weight), values: x.values || [], min: x.type === 'experience' ? Number(x.min) || 0 : null, max: (x.type === 'notice' || x.type === 'ctc') && x.max != null && x.max !== ('' as any) ? Number(x.max) : null}));
     try {
       if (chosen) {
         const r = await send(auth.token, `/api/requisitions/${chosen.id}/scorecard`, 'PUT', {criteria});
@@ -70,6 +70,7 @@ export default function Requisitions() {
             <input aria-label="Weight" type="number" min={0} max={100} step="any" value={x.weight} onChange={e => upd(i, {weight: e.target.value as any})} />
             {x.type === 'experience' ? <input aria-label="Minimum years" type="number" min={0} step="any" placeholder="Min years" value={x.min ?? ''} onChange={e => upd(i, {min: e.target.value as any})} />
               : x.type === 'notice' ? <input aria-label="Maximum days" type="number" min={0} placeholder="Max notice days" value={x.max ?? ''} onChange={e => upd(i, {max: e.target.value as any})} />
+              : x.type === 'ctc' ? <input aria-label="Maximum CTC in LPA" type="number" min={0} step="any" placeholder="Max CTC (LPA)" value={x.max ?? ''} onChange={e => upd(i, {max: e.target.value as any})} />
               : <input aria-label="Values" placeholder="Comma-separated, e.g. Java, Kafka" value={(x.values || []).join(', ')} onChange={e => upd(i, {values: e.target.value.split(',').map(v => v.trim()).filter(Boolean)})} />}
             <button type="button" className="ghost" aria-label={`Remove ${x.label}`} onClick={() => setCrit(crit.filter((_, n) => n !== i))}>✕</button>
           </div>

@@ -30,8 +30,12 @@ MAX_BYTES = int(float(os.getenv('UPLOAD_MAX_MB', '10')) * 1024 * 1024)
 WORKERS = max(1, int(os.getenv('PROCESS_WORKERS', '4')))
 OCR_MAX_PAGES = 20
 
-STAGES = ['Screened', 'Submitted to Client', 'Shortlisted', 'Interview proposed', 'Interview scheduled', 'Offered', 'Joined', 'Rejected by Client', 'Rejected']
+STAGES = ['Sourced', 'Screened', 'Submitted to Client', 'Shortlisted', 'Interview proposed', 'Interview scheduled', 'Offered', 'Joined', 'Rejected by Client', 'Rejected']
 SELECTED_STAGES = {'Submitted to Client', 'Shortlisted', 'Interview proposed', 'Interview scheduled', 'Offered', 'Joined', 'Rejected by Client'}
+
+
+def ref(cid):
+    return cid.replace('-', '')[-6:].upper()
 
 
 def now():
@@ -231,6 +235,16 @@ def find_experience(text):
     return best if best else (None, None)
 
 
+CTC_RE = re.compile(r'\b(expected|current|present)?\s*ctc\b[^0-9\n]{0,25}?(\d+(?:\.\d+)?)\s*(?:lpa|lakhs?|lacs?)', re.I)
+
+
+def find_ctc(text):
+    """CTC in lakh per annum, as stated in the CV. Prefers an *expected* CTC over a current one. Returns (lpa, match) or (None, None)."""
+    ms = [m for m in CTC_RE.finditer(text) if float(m.group(2)) < 1000]
+    pick = next((m for m in ms if (m.group(1) or '').lower() == 'expected'), ms[0] if ms else None)
+    return (float(pick.group(2)), pick) if pick else (None, None)
+
+
 def find_notice(text):
     if (m := re.search(r'notice(?:\s+period)?\s*(?:is|of|[:\-])?\s*(\d+)\s*(days?|months?)', text, re.I)) or (m := re.search(r'(\d+)\s*(days?|months?)\s*(?:of\s*)?notice', text, re.I)):
         n = int(m.group(1)); return (n * 30 if m.group(2).lower().startswith('month') else n), m
@@ -288,6 +302,12 @@ def score(c, card):
                 ratio = min(got / minimum, 1) if minimum else 1.0; status = 'matched' if ratio >= 1 else 'partial'
                 q, page = snippet(text, m) if m else (f'{got:g} years experience', None)
             extra = {'expected_min_years': minimum, 'found_years': got}
+        elif typ == 'ctc':
+            val, m = find_ctc(text); mx = r.get('max')
+            if val is not None:
+                ratio = 1.0 if mx is None or val <= mx else 0.0; status = 'matched' if ratio else 'not_met'
+                q, page = snippet(text, m)
+            extra = {'expected_max_lpa': mx, 'found_lpa': val}
         elif typ == 'notice':
             days, m = find_notice(text)
             if days is None and c.get('notice_days') is not None: days = c['notice_days']
@@ -320,12 +340,18 @@ def parse(path):
     """Returns a list of page texts (a DOCX is a single 'page')."""
     ext = path.suffix.lower()
     if ext == '.docx':
-        doc = Document(path)
+        try:
+            doc = Document(path)
+        except Exception:
+            raise ValueError('The file is corrupt or is not a readable DOCX')
         parts = [p.text for p in doc.paragraphs] + [c.text for t in doc.tables for row in t.rows for c in row.cells]
         return ['\n'.join(parts)]
     if ext != '.pdf':
         raise ValueError('Only PDF and DOCX files are supported')
-    pdf = fitz.open(path)
+    try:
+        pdf = fitz.open(path)
+    except Exception:
+        raise ValueError('The file is corrupt or is not a readable PDF')
     if pdf.needs_pass:
         raise ValueError('PDF is password protected')
     pages = [p.get_text() for p in pdf]
@@ -361,7 +387,7 @@ def find_duplicate(d, r, p):
     return None, None
 
 
-def process(rid, force=False):
+def process(rid, force=False, cid=None):
     """Process one document. Every failure is contained to this document."""
     d = SessionLocal(); r = None
     try:
@@ -382,7 +408,7 @@ def process(rid, force=False):
             if force and p['email'] and d.query(Candidate).filter_by(email=p['email']).first():
                 raise ValueError('A candidate with this email already exists; discard this document instead')
             sc, ev = score({**p, 'raw_text': text, 'source_document': r.filename}, req.scorecard)
-            c = Candidate(id=str(uuid.uuid4()), requisition_id=req.id, name=p['name'], email=p['email'], phone=p['phone'], role=req.title, experience=p['experience'], skills=p['skills'], notice_days=p['notice_days'], raw_text=text, score=sc, confidence=p['confidence'], stage='Screened', evidence=ev, consent='Pending')
+            c = Candidate(id=cid or str(uuid.uuid4()), requisition_id=req.id, name=p['name'], email=p['email'], phone=p['phone'], role=req.title, experience=p['experience'], skills=p['skills'], notice_days=p['notice_days'], raw_text=text, score=sc, confidence=p['confidence'], stage='Sourced', evidence=ev, consent='Pending')
             d.add(c); r.candidate_id = c.id; r.status = 'completed'; d.commit()
     except IntegrityError:
         d.rollback(); r = d.get(Resume, rid); r.status = 'duplicate'; r.error = 'Matches an existing candidate (email)'; d.commit()
@@ -414,11 +440,11 @@ class Login(BaseModel):
 
 class Criterion(BaseModel):
     label: str = Field(min_length=1, max_length=120)
-    type: Literal['skills', 'experience', 'notice', 'location', 'education']
+    type: Literal['skills', 'experience', 'notice', 'ctc', 'location', 'education']
     weight: float = Field(ge=0, le=100)
     values: list[str] = []
     min: float | None = None
-    max: int | None = None
+    max: float | None = None
 
 
 class Card(BaseModel):
@@ -492,7 +518,7 @@ def login(v: Login, d: Session = Depends(db)):
 # --- JD extraction
 def call_llm(description):
     payload = {'model': os.environ['LLM_MODEL'], 'response_format': {'type': 'json_object'}, 'temperature': 0, 'messages': [
-        {'role': 'system', 'content': 'Extract only requirements stated in the job description. Return JSON {"criteria":[{"label":str,"type":"skills|experience|notice|location|education","weight":number,"values":[str],"min":number|null,"max":number|null}]}. Use "min" (years) for experience and "max" (days) for notice. Weights must total 100. Never invent requirements.'},
+        {'role': 'system', 'content': 'Extract only requirements stated in the job description. Return JSON {"criteria":[{"label":str,"type":"skills|experience|notice|ctc|location|education","weight":number,"values":[str],"min":number|null,"max":number|null}]}. Use "min" (years) for experience, "max" (days) for notice and "max" (lakh per annum) for ctc. Weights must total 100. Never invent requirements.'},
         {'role': 'user', 'content': description}]}
     request = Request(os.getenv('LLM_BASE_URL', 'https://api.openai.com/v1/chat/completions'), data=json.dumps(payload).encode(), headers={'Authorization': 'Bearer ' + os.environ['LLM_API_KEY'], 'Content-Type': 'application/json'})
     return json.loads(json.loads(urlopen(request, timeout=45).read())['choices'][0]['message']['content'])
@@ -645,6 +671,12 @@ def live(d, cid):
     return x
 
 
+def cv_reviewed(d, u, c):
+    """A recruiter must open the original CV (or, if no file is stored, the profile) before submitting it to a client."""
+    action = 'document_preview' if resume_ids(d).get(c.id) else 'candidate_view'
+    return d.query(Audit).filter_by(actor_id=u.id, target=c.id, action=action).first() is not None
+
+
 @app.get('/api/candidates')
 def candidates(requisition_id: str | None = None, u=Depends(rec), d: Session = Depends(db)):
     q = d.query(Candidate).filter(Candidate.deleted_at.is_(None))
@@ -662,7 +694,7 @@ def candidate(cid: str, u=Depends(rec), d: Session = Depends(db)):
     x = live(d, cid); audit(d, u, 'candidate_view', cid); d.commit()
     sub = d.query(Submission).filter_by(candidate_id=cid).first(); req = d.get(Requisition, x.requisition_id)
     res = {k: getattr(x, k) for k in ['id', 'name', 'email', 'phone', 'role', 'experience', 'skills', 'notice_days', 'score', 'stage', 'evidence', 'consent', 'confidence']}
-    res.update(pages=x.raw_text.split('\f'), raw_text=x.raw_text.replace('\f', '\n\n'), resume_id=resume_ids(d).get(cid), requisition_title=req.title if req else '', client_org=req.client if req else '',
+    res.update(ctc_lpa=find_ctc(x.raw_text)[0], cv_reviewed=cv_reviewed(d, u, x), pages=x.raw_text.split('\f'), raw_text=x.raw_text.replace('\f', '\n\n'), resume_id=resume_ids(d).get(cid), requisition_title=req.title if req else '', client_org=req.client if req else '',
                submitted=bool(sub), client_reviews=[{'action': r.action, 'reason': r.reason, 'slots': r.slots, 'at': r.created_at.isoformat()} for r in d.query(ClientReview).filter_by(candidate_id=cid).order_by(ClientReview.created_at.desc())],
                deletion_request=next(({'id': r.id, 'status': r.status} for r in d.query(DeletionRequest).filter_by(candidate_id=cid, status='Requested')), None))
     return res
@@ -685,6 +717,7 @@ def consent(cid: str, v: Consent, u=Depends(rec), d: Session = Depends(db)):
 def submit(cid: str, u=Depends(rec), d: Session = Depends(db)):
     c = live(d, cid)
     if c.consent != 'Granted': raise HTTPException(409, 'Candidate consent must be Granted before sharing a profile with a client')
+    if not cv_reviewed(d, u, c): raise HTTPException(409, 'Open the original CV before submitting this candidate to the client')
     req = d.get(Requisition, c.requisition_id)
     if not d.query(Submission).filter_by(candidate_id=cid, client_org=req.client).first(): d.add(Submission(id=str(uuid.uuid4()), candidate_id=cid, client_org=req.client))
     c.stage = 'Submitted to Client'; audit(d, u, 'client_submit', cid); d.commit(); return {'status': 'submitted', 'client': req.client}
@@ -787,7 +820,7 @@ def mask(s):
 
 def client_view(c, last):
     ev = {k: {'status': v['status'], 'quote': mask(v.get('quote')), 'page': v.get('page'), 'weight': v.get('weight'), 'points': v.get('points')} for k, v in (c.evidence or {}).items()}
-    return {'id': c.id, 'name': 'Candidate ' + c.id[:6].upper(), 'role': c.role, 'experience': c.experience, 'skills': c.skills, 'notice_days': c.notice_days, 'score': c.score, 'stage': c.stage, 'evidence': ev,
+    return {'id': c.id, 'name': 'Candidate ' + ref(c.id), 'role': c.role, 'experience': c.experience, 'skills': c.skills, 'notice_days': c.notice_days, 'score': c.score, 'stage': c.stage, 'evidence': ev,
             'my_review': {'action': last.action, 'reason': last.reason, 'slots': last.slots, 'at': last.created_at.isoformat() + 'Z'} if last else None}
 
 
@@ -838,7 +871,7 @@ def fairness(weeks: int = 8, u=Depends(monitor_user), d: Session = Depends(db)):
         ranked = sorted(cs, key=lambda z: (-z.score, z.created_at)); sel = [c for c in ranked if c.id in submitted or c.stage in SELECTED_STAGES]; k = len(sel)
         top = {c.id for c in ranked[:k]}; ns = [c for c in ranked if c not in sel]
         avg = lambda xs: round(sum(x.score for x in xs) / len(xs), 1) if xs else None
-        rows = [{'ref': 'C-' + c.id[:6].upper(), 'ai_rank': i + 1, 'score': c.score, 'selected': c in sel, 'stage': c.stage} for i, c in enumerate(ranked)]
+        rows = [{'ref': 'C-' + ref(c.id), 'ai_rank': i + 1, 'score': c.score, 'selected': c in sel, 'stage': c.stage} for i, c in enumerate(ranked)]
         diffs = [{'ref': r['ref'], 'ai_rank': r['ai_rank'], 'score': r['score'], 'kind': 'selected outside AI top-%d' % k if r['selected'] else 'in AI top-%d, not selected' % k} for r, c in zip(rows, ranked) if (r['selected'] and c.id not in top) or (not r['selected'] and c.id in top and k)]
         entry = {'requisition_id': rid, 'title': titles.get(rid, ''), 'sample_size': len(cs), 'selected': k, 'top_k': k, 'overlap_at_k': round(len(top & {c.id for c in sel}) / k, 2) if k else None,
                  'mean_ai_rank_selected': round(sum(r['ai_rank'] for r in rows if r['selected']) / k, 1) if k else None, 'avg_score_selected': avg(sel), 'avg_score_not_selected': avg(ns), 'candidates': rows, 'differences': diffs}
@@ -854,11 +887,18 @@ def fairness(weeks: int = 8, u=Depends(monitor_user), d: Session = Depends(db)):
 @app.get('/api/dashboard')
 def dashboard(u=Depends(rec), d: Session = Depends(db)):
     x = d.query(Candidate).filter(Candidate.deleted_at.is_(None)).all(); res = d.query(Resume).all()
-    return {'active_requisitions': d.query(Requisition).count(), 'candidates_processed': len(x), 'awaiting_review': sum(z.stage == 'Screened' for z in x), 'submitted_to_client': sum(z.stage == 'Submitted to Client' for z in x), 'shortlisted': sum(z.stage == 'Shortlisted' for z in x),
+    return {'active_requisitions': d.query(Requisition).count(), 'candidates_processed': len(x), 'awaiting_review': sum(z.stage in ('Sourced', 'Screened') for z in x), 'submitted_to_client': sum(z.stage == 'Submitted to Client' for z in x), 'shortlisted': sum(z.stage == 'Shortlisted' for z in x),
             'documents_processing': sum(r.status in ('queued', 'processing') for r in res), 'documents_failed': sum(r.status == 'failed' for r in res), 'duplicates_to_review': sum(r.status == 'duplicate' for r in res), 'open_deletion_requests': d.query(DeletionRequest).filter_by(status='Requested').count()}
 
 
 # ---------------------------------------------------------------- seed (synthetic demo data; disable with SEED_DEMO=0)
+SEED_CVS = [  # (candidate id, requisition key, file name, CV lines) - names/roles/skills/notice from the client brief; the rest is invented
+    ('CND-91022', 'java', 'ritika_bansal.docx', ['Ritika Bansal', 'ritika.bansal@example.com | +91 9000000101 | Noida', 'Senior Java Developer', '6.5 years of experience in backend engineering', 'Skills: Java, Spring Boot, microservices, Kafka, SQL', 'Built payment microservices with Spring Boot for a retail bank.', 'Expected CTC: 24 LPA', 'Notice period: 60 days']),
+    ('CND-91047', 'kyc', 'arjun_rawat.docx', ['Arjun Rawat', 'arjun.rawat@example.com | 9000000102', 'KYC Analyst', '3 years of experience in banking back-office operations', 'Skills: KYC, AML checks, Excel', 'Reviewed customer onboarding files and AML alerts.', 'Expected CTC: 6 LPA', 'Notice period: 30 days']),
+    ('CND-91088', 'java', 'pooja_nair.docx', ['Pooja Nair', 'pooja.nair@example.com | 9000000103', 'Java Developer', '4 years of experience', 'Skills: Java, Hibernate, REST APIs', 'Maintained REST services for an insurance platform.', 'Expected CTC: 14 LPA', 'Notice period: 90 days']),
+]
+
+
 def seed():
     if os.getenv('SEED_DEMO', '1') == '0': return
     d = SessionLocal()
@@ -867,13 +907,25 @@ def seed():
         pw = hash_password(os.getenv('DEMO_PASSWORD', 'DemoPass123!'))
         d.add_all([User(id='u-rec', email='recruiter@talentra.demo', role='RECRUITER', org='Talentra', password_hash=pw), User(id='u-client', email='client@acme.demo', role='CLIENT', org='Acme Systems', password_hash=pw),
                    User(id='u-client2', email='client@globex.demo', role='CLIENT', org='Globex Corp', password_hash=pw), User(id='u-head', email='head@talentra.demo', role='DELIVERY_HEAD', org='Talentra', password_hash=pw)])
-        card = {'criteria': [{'label': 'Required skills', 'type': 'skills', 'values': ['Java', 'Spring Boot', 'Microservices'], 'weight': 55}, {'label': 'Experience', 'type': 'experience', 'min': 5, 'weight': 30}, {'label': 'Notice period', 'type': 'notice', 'max': 60, 'weight': 15}]}
-        r = Requisition(id='req-java', title='Senior Java Developer', client='Acme Systems', location='Noida', description='Senior Java developer for payments microservices. Requires Java, Spring Boot and Microservices, 5+ years of experience, notice period up to 60 days.', scorecard=card); d.add(r)
-        for i, n, e, exp, skills, notice in [('CND-1', 'Ritika Bansal', 'ritika@example.demo', 6.5, ['Java', 'Spring Boot', 'Microservices'], 60), ('CND-2', 'Dev Mehta', 'dev@example.demo', 7, ['Java', 'Spring Boot', 'Microservices', 'AWS'], 30)]:
-            text = f'{n}\n{e}\n{exp} years experience. Skills: {", ".join(skills)}.\nNotice period: {notice} days.'
-            p = {'skills': skills, 'raw_text': text, 'source_document': 'demo.docx', 'confidence': 'High'}; sc, ev = score(p, card)
-            d.add(Candidate(id=i, requisition_id=r.id, name=n, email=e, phone='', role=r.title, experience=exp, skills=skills, notice_days=notice, raw_text=text, score=sc, confidence='High', stage='Submitted to Client' if i == 'CND-2' else 'Screened', evidence=ev, consent='Granted'))
-        d.add(Submission(id=str(uuid.uuid4()), candidate_id='CND-2', client_org='Acme Systems')); d.commit()
+        reqs = {
+            'java': Requisition(id='req-java', title='Senior Java Developer', client='Acme Systems', location='Noida', description='Senior Java Developer, 5-8 years, Spring Boot, Noida, notice up to 60 days.',
+                                scorecard={'criteria': [{'label': 'Must-have skills', 'type': 'skills', 'values': ['Java', 'Spring Boot', 'Microservices'], 'weight': 45}, {'label': 'Experience (5+ yrs)', 'type': 'experience', 'min': 5, 'weight': 25}, {'label': 'Notice up to 60 days', 'type': 'notice', 'max': 60, 'weight': 15}, {'label': 'Location', 'type': 'location', 'values': ['Noida'], 'weight': 5}, {'label': 'Expected CTC up to 28 LPA', 'type': 'ctc', 'max': 28, 'weight': 10}]}),
+            'kyc': Requisition(id='req-kyc', title='KYC Analyst', client='Globex Corp', location='Noida', description='KYC Analyst for banking back-office. KYC, AML checks and Excel; 2+ years; notice up to 45 days.',
+                               scorecard={'criteria': [{'label': 'Must-have skills', 'type': 'skills', 'values': ['KYC', 'AML checks', 'Excel'], 'weight': 60}, {'label': 'Experience (2+ yrs)', 'type': 'experience', 'min': 2, 'weight': 25}, {'label': 'Notice up to 45 days', 'type': 'notice', 'max': 45, 'weight': 15}]})}
+        d.add_all(reqs.values()); d.flush(); folder = UPLOADS; rows = []
+        for cid, key, name, lines in SEED_CVS:
+            doc = Document()
+            for line in lines: doc.add_paragraph(line)
+            dest = folder / (str(uuid.uuid4()) + '.docx'); doc.save(dest); blob = dest.read_bytes()
+            b = Batch(id='seed-' + key, requisition_id=reqs[key].id)
+            if not d.get(Batch, b.id): d.add(b); d.flush()
+            rows.append((cid, Resume(id=str(uuid.uuid4()), batch_id=b.id, filename=name, path=str(dest), sha256=hashlib.sha256(blob).hexdigest(), status='queued')))
+        d.add_all([r for _, r in rows]); d.commit()
+        for cid, r in rows: process(r.id, cid=cid)  # the real parse + score pipeline
+        c = d.get(Candidate, 'CND-91022')
+        if c:  # one candidate already shared with the client, so the portal is not empty
+            c.consent = 'Granted'; c.stage = 'Submitted to Client'; d.add(Submission(id=str(uuid.uuid4()), candidate_id=c.id, client_org='Acme Systems'))
+        d.commit()
     finally:
         d.close()
 

@@ -96,13 +96,13 @@ def test_scoring_evidence_on_uploaded_pdf(client, rec, req):
     assert f['status'] == 'completed'
     c = client.get(f"/api/candidates/{f['candidate_id']}", headers=rec).json()
     assert c['score'] == 100 and c['evidence']['Skills']['page'] == 1 and 'Python' in c['evidence']['Skills']['quote']
-    assert c['evidence']['Experience']['quote'] and c['stage'] == 'Screened'
+    assert c['evidence']['Experience']['quote'] and c['stage'] == 'Sourced'
 
 
 def test_unknown_not_rejected(client, rec, req):
     f = one(client, rec, req, 'vague.docx', make_docx('Dana Lee', 'dana@vague.test', 'Enthusiastic engineer.'))
     c = client.get(f"/api/candidates/{f['candidate_id']}", headers=rec).json()
-    assert c['score'] == 0 and c['stage'] == 'Screened' and c['evidence']['Experience']['status'] == 'unknown' and c['experience'] is None
+    assert c['score'] == 0 and c['stage'] == 'Sourced' and c['evidence']['Experience']['status'] == 'unknown' and c['experience'] is None
 
 
 def test_retry_failed_document(client, rec, req, monkeypatch):
@@ -168,6 +168,12 @@ def make_candidate(client, rec, req, tag):
     return one(client, rec, req, f'{tag}.docx', cv('Ivy Moss', f'{tag}@cl.test', extra='Python Django. 6 years of experience. Contact ivy@secret.test'))['candidate_id']
 
 
+def review(client, rec, cid):
+    """Open the original CV, as a recruiter must before submitting."""
+    rid = client.get(f'/api/candidates/{cid}', headers=rec).json()['resume_id']
+    assert client.get(f'/api/documents/{rid}', headers=rec).status_code == 200
+
+
 def ids(client, who):
     return [x['id'] for x in client.get('/api/client/submissions', headers=who).json()]
 
@@ -176,6 +182,10 @@ def test_submit_requires_consent_then_client_flow(client, rec, acme, globex, req
     cid = make_candidate(client, rec, req, 'flow')
     assert client.post(f'/api/candidates/{cid}/submit', headers=rec).status_code == 409
     assert client.put(f'/api/candidates/{cid}/consent', headers=rec, json={'status': 'Granted'}).status_code == 200
+    r = client.post(f'/api/candidates/{cid}/submit', headers=rec); assert r.status_code == 409 and 'Open the original CV' in r.json()['detail']
+    assert client.get(f'/api/candidates/{cid}', headers=rec).json()['cv_reviewed'] is False
+    review(client, rec, cid)
+    assert client.get(f'/api/candidates/{cid}', headers=rec).json()['cv_reviewed'] is True
     assert client.post(f'/api/candidates/{cid}/submit', headers=rec).status_code == 200
     assert cid in ids(client, acme) and cid not in ids(client, globex)
     assert client.post(f'/api/client/submissions/{cid}/shortlist', headers=globex, json={}).status_code == 404
@@ -200,7 +210,7 @@ def test_unsubmitted_hidden_withdraw_and_consent_withdrawal(client, rec, acme, r
     cid = make_candidate(client, rec, req, 'hidden')
     assert cid not in ids(client, acme)
     assert client.post(f'/api/client/submissions/{cid}/shortlist', headers=acme, json={}).status_code == 404
-    client.put(f'/api/candidates/{cid}/consent', headers=rec, json={'status': 'Granted'}); client.post(f'/api/candidates/{cid}/submit', headers=rec)
+    client.put(f'/api/candidates/{cid}/consent', headers=rec, json={'status': 'Granted'}); review(client, rec, cid); assert client.post(f'/api/candidates/{cid}/submit', headers=rec).status_code == 200
     assert cid in ids(client, acme)
     client.put(f'/api/candidates/{cid}/consent', headers=rec, json={'status': 'Withdrawn'})
     assert cid not in ids(client, acme)
@@ -221,7 +231,7 @@ def test_stage_validation(client, rec, req):
 def test_deletion_workflow_removes_data_and_files(client, rec, acme, req):
     f = one(client, rec, req, 'del.docx', cv('Jo Ng', 'jo@del.test')); cid = f['candidate_id']
     rid = client.get(f'/api/candidates/{cid}', headers=rec).json()['resume_id']; folder = Path(main.UPLOADS); before = len(list(folder.iterdir()))
-    client.put(f'/api/candidates/{cid}/consent', headers=rec, json={'status': 'Granted'}); client.post(f'/api/candidates/{cid}/submit', headers=rec)
+    client.put(f'/api/candidates/{cid}/consent', headers=rec, json={'status': 'Granted'}); review(client, rec, cid); client.post(f'/api/candidates/{cid}/submit', headers=rec)
     q = client.post(f'/api/candidates/{cid}/deletion-request', headers=rec).json()
     assert client.post(f'/api/candidates/{cid}/deletion-request', headers=rec).json()['id'] == q['id']
     assert any(x['id'] == q['id'] and x['status'] == 'Requested' for x in client.get('/api/deletion-requests', headers=rec).json())
@@ -259,7 +269,7 @@ def test_fairness_report(client, rec, head, req):
     for r in w['requisitions']:
         assert [c['ai_rank'] for c in r['candidates']] == list(range(1, r['sample_size'] + 1))
         assert all(c['ref'].startswith('C-') for c in r['candidates'])
-    assert 'Ritika' not in json.dumps(f)
+    assert 'Ritika' not in json.dumps(f) and 'Pooja' not in json.dumps(f)
 
 
 def test_dashboard_and_audit(client, rec):
@@ -270,3 +280,29 @@ def test_dashboard_and_audit(client, rec):
 def test_upload_limits(client, rec, req):
     assert client.post(f'/api/requisitions/{req}/uploads', headers=rec, files=[]).status_code in (400, 422)
     assert client.post('/api/requisitions/missing/uploads', headers=rec, files=[('files', ('a.pdf', b'%PDF-', ''))]).status_code == 404
+
+
+# ---- brief sample data, CTC, pipeline stage
+def test_brief_sample_data_is_seeded_and_scored_from_real_cvs(client, rec):
+    people = {c['id']: c for c in client.get('/api/candidates', headers=rec).json()}
+    assert people['CND-91022']['name'] == 'Ritika Bansal' and people['CND-91047']['name'] == 'Arjun Rawat' and people['CND-91088']['name'] == 'Pooja Nair'
+    assert people['CND-91022']['score'] > people['CND-91088']['score'] and people['CND-91088']['score'] > 0  # lower scorers stay listed
+    assert people['CND-91088']['notice_days'] == 90 and people['CND-91022']['resume_id']
+    pooja = client.get('/api/candidates/CND-91088', headers=rec).json()['evidence']
+    assert pooja['Notice up to 60 days']['status'] == 'not_met' and 'Notice period: 90' in pooja['Notice up to 60 days']['quote']
+
+
+def test_ctc_criterion_and_unknown(client, rec, req):
+    from app.main import score, find_ctc
+    assert find_ctc('Current CTC: 12 LPA. Expected CTC: 18.5 lakhs')[0] == 18.5 and find_ctc('no money info')[0] is None
+    card = {'criteria': [{'label': 'CTC', 'type': 'ctc', 'max': 20, 'weight': 100}]}
+    assert score({'raw_text': 'Expected CTC: 18 LPA'}, card)[0] == 100 and score({'raw_text': 'Expected CTC: 25 LPA'}, card)[0] == 0
+    assert score({'raw_text': 'nothing here'}, card)[1]['CTC']['status'] == 'unknown'
+    assert client.put(f'/api/requisitions/{req}/scorecard', headers=rec, json={'criteria': [{'label': 'CTC', 'type': 'ctc', 'max': 20.5, 'weight': 100}]}).status_code == 200
+    assert client.put(f'/api/requisitions/{req}/scorecard', headers=rec, json=CARD).status_code == 200
+
+
+def test_candidates_start_as_sourced_and_client_refs_are_unique(client, rec, acme):
+    assert client.get('/api/candidates/CND-91088', headers=rec).json()['stage'] == 'Sourced'
+    refs = [x['name'] for x in client.get('/api/client/submissions', headers=acme).json()]
+    assert len(refs) == len(set(refs))
