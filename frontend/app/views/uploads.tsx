@@ -62,7 +62,7 @@ export default function Uploads({openCandidate}: {openCandidate: (id: string) =>
             const done = b.total - (b.counts.queued || 0) - (b.counts.processing || 0);
             return <button key={b.id} className={'row batch ' + (sel === b.id ? 'on' : '')} onClick={() => setSel(sel === b.id ? undefined : b.id)}>
               <span><b>{b.requisition_title || 'Requisition'}</b><small>{fmtDate(b.created_at + 'Z')}</small></span>
-              <span>{b.total} docs</span>
+              <span>{b.total} doc{b.total === 1 ? '' : 's'}</span>
               <span className="bar sm"><i style={{width: (b.total ? done * 100 / b.total : 0) + '%'}} /></span>
               <span className="chips">{active(b.counts) && <Badge tone="info">processing</Badge>}{b.counts.failed > 0 && <Badge tone="bad">{b.counts.failed} failed</Badge>}{b.counts.duplicate > 0 && <Badge tone="warn">{b.counts.duplicate} duplicate</Badge>}{!active(b.counts) && !b.counts.failed && !b.counts.duplicate && <Badge tone="good">done</Badge>}</span>
             </button>;

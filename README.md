@@ -10,6 +10,8 @@ Stack: FastAPI + SQLAlchemy (PostgreSQL; SQLite for local dev) · Next.js 15 · 
 **Client** — sees only candidates submitted to their own organization, with name and contact details withheld; can shortlist, reject (reason required) or propose up to 5 interview slots. Actions persist and appear in the recruiter's pipeline and candidate feedback tab.
 **Delivery head** — weekly comparison of the AI ranking with recruiter selections (sample size, overlap with AI top-K, mean AI rank of selected, ranking differences). This is monitoring, **not proof the AI is unbiased**; no protected attributes are collected, so group-level disparity can't be measured.
 
+Sample CVs for trying the bulk upload (text, table, scanned, duplicate and corrupt files) are in [sample_cvs/](sample_cvs/README.md). Design document: [docs/Talentra_Technical_Design_Document.docx](docs/Talentra_Technical_Design_Document.docx).
+
 ## Run with Docker
 
 ```bash
@@ -19,7 +21,7 @@ docker compose up --build
 
 Open http://localhost:3000 (API docs: http://localhost:8000/docs). Tesseract is installed in the backend image.
 
-Demo accounts (synthetic data, password `DemoPass123!` unless `DEMO_PASSWORD` is set):
+Demo accounts (synthetic data incl. the brief's three candidates; password `DemoPass123!` unless `DEMO_PASSWORD` is set):
 `recruiter@talentra.demo` · `client@acme.demo` · `client@globex.demo` (second org, for isolation checks) · `head@talentra.demo` (delivery head).
 
 ## Run locally (no Docker)

@@ -28,7 +28,7 @@ export function Fairness() {
       {low && <div className="notice warn">Only {week.sample_size} candidate{week.sample_size === 1 ? '' : 's'} this week (below {data.min_reliable_sample}). Treat these comparisons as anecdotal, not statistical.</div>}
       {week.requisitions.map((r: any) => (
         <section className="panel" key={r.requisition_id}>
-          <div className="toolbar"><h2>{r.title || 'Requisition'}</h2><span>{r.sample_size} candidates · {r.selected} selected</span></div>
+          <div className="toolbar"><h2>{r.title || 'Requisition'}</h2><span>{r.sample_size} candidate{r.sample_size === 1 ? '' : 's'} · {r.selected} selected</span></div>
           <div className="metrics five">
             <article><span>Overlap with AI top-{r.top_k || 'K'}</span><b>{pct(r.overlap_at_k)}</b></article>
             <article><span>Mean AI rank of selected</span><b>{r.mean_ai_rank_selected ?? '—'}</b></article>

@@ -20,7 +20,7 @@ export default function Candidates({ver, setOpenId}: {ver: number; setOpenId: (i
       </div>
       {list.loading && !list.data ? <Spinner /> : list.error ? <ErrorBox msg={list.error} retry={list.reload} /> : !list.data?.length ? <Empty title="No candidates yet" hint="Upload CVs to a requisition and processed candidates are ranked here." /> : !shown.length ? <Empty title="No candidates match your search" hint="Low-scoring candidates are never hidden; clear the search to see everyone." /> :
         <div className="table">
-          <div className="row head"><span>#  Candidate</span><span>Top skills</span><span>Notice</span><span>Score</span><span>Stage</span></div>
+          <div className="row head"><span>Rank in requisition · Candidate</span><span>Top skills</span><span>Notice</span><span>Score</span><span>Stage</span></div>
           {shown.map(p => (
             <button className="row" key={p.id} onClick={() => setOpenId(p.id)}>
               <span><b><i className="rank">{p.rank}</i>{p.name}</b><small>{p.requisition_title} · {p.experience == null ? 'experience unknown' : p.experience + ' yrs'}</small></span>
