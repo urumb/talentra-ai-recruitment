@@ -1,7 +1,7 @@
 import os, sys, tempfile, time
 from pathlib import Path
 _tmp = tempfile.mkdtemp()
-os.environ.update(DATABASE_URL=f'sqlite:///{_tmp}/test.db', UPLOAD_DIR=f'{_tmp}/uploads', JWT_SECRET='x' * 40, LLM_API_KEY='', LLM_MODEL='', PROCESS_WORKERS='3')
+os.environ.update(TALENTRA_NO_DOTENV='1', DATABASE_URL=f'sqlite:///{_tmp}/test.db', UPLOAD_DIR=f'{_tmp}/uploads', JWT_SECRET='x' * 40, LLM_API_KEY='', LLM_MODEL='', PROCESS_WORKERS='3')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import io, pytest, fitz
 from docx import Document

@@ -18,6 +18,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, Session
 
 log = logging.getLogger('talentra')
+
+
+def load_dotenv(files=None):
+    """Load KEY=VALUE lines from backend/.env or the repo-root .env for local runs. Real environment variables always win."""
+    if os.getenv('TALENTRA_NO_DOTENV'): return
+    for f in files or (Path(__file__).resolve().parents[1] / '.env', Path(__file__).resolve().parents[2] / '.env'):
+        if not f.is_file(): continue
+        for line in f.read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line: continue
+            k, v = line.split('=', 1); v = re.sub(r'\s+#.*$', '', v).strip().strip('"').strip("'")
+            os.environ.setdefault(k.strip(), v)
+
+
+load_dotenv()
 URL = os.getenv('DATABASE_URL', 'sqlite:///./talentra.db')
 engine = create_engine(URL, connect_args={'check_same_thread': False, 'timeout': 30} if URL.startswith('sqlite') else {}, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
@@ -329,8 +344,16 @@ def rescore(d, c, req):
 
 
 # ---------------------------------------------------------------- document parsing + background processing
-def ocr_page(page):
+def tesseract():
+    """Import pytesseract and point it at the Windows default install if tesseract is not on PATH (or TESSERACT_CMD is set)."""
     import pytesseract
+    cmd = os.getenv('TESSERACT_CMD') or next((x for x in (r'C:\Program Files\Tesseract-OCR\tesseract.exe', r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe') if Path(x).exists()), None)
+    if cmd and hasattr(pytesseract, 'pytesseract'): pytesseract.pytesseract.tesseract_cmd = cmd
+    return pytesseract
+
+
+def ocr_page(page):
+    pytesseract = tesseract()
     from PIL import Image
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
     return pytesseract.image_to_string(Image.frombytes('RGB', (pix.width, pix.height), pix.samples))
@@ -357,8 +380,7 @@ def parse(path):
     pages = [p.get_text() for p in pdf]
     if sum(len(p.strip()) for p in pages) < 30:  # scanned / image-only: OCR
         try:
-            import pytesseract
-            pytesseract.get_tesseract_version()
+            tesseract().get_tesseract_version()
         except Exception as e:
             raise ValueError('Scanned PDF needs OCR, but Tesseract is not available on the server: ' + str(e)[:150])
         if len(pdf) > OCR_MAX_PAGES:
@@ -500,7 +522,8 @@ def startup():
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok'}
+    # demo = the public demo accounts exist and use the documented password, so the sign-in page may offer one-click demo logins
+    return {'status': 'ok', 'demo': os.getenv('SEED_DEMO', '1') != '0' and not os.getenv('DEMO_PASSWORD')}
 
 
 @app.post('/api/auth/login')
@@ -533,6 +556,11 @@ def normalize_weights(result):
         crit[-1]['weight'] = round(100 - sum(x['weight'] for x in crit[:-1]), 1)
         return ['Weights returned by the model did not total 100 and were scaled proportionally. Review before saving.']
     return []
+
+
+@app.get('/api/jd/status')
+def jd_status(u=Depends(rec)):
+    return {'configured': bool(os.getenv('LLM_API_KEY') and os.getenv('LLM_MODEL'))}
 
 
 @app.post('/api/jd/extract')

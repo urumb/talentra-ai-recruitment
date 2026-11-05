@@ -36,6 +36,25 @@ npm run dev                         # http://localhost:3000
 
 Open http://localhost:3000 and sign in with a demo login. API docs: http://localhost:8000/docs.
 
+### Free AI for JD extraction (Groq)
+
+1. Create a free key at https://console.groq.com (API Keys).
+2. Open the file `.env` in the repository root (create it by copying `.env.example` if it does not exist). It is git-ignored.
+3. Fill in these three lines (the model name must be one listed in the Groq console; `llama-3.3-70b-versatile` was valid when this was written):
+   ```
+   LLM_API_KEY=paste-your-key-here
+   LLM_MODEL=llama-3.3-70b-versatile
+   LLM_BASE_URL=https://api.groq.com/openai/v1/chat/completions
+   ```
+4. Restart the backend. The Requisitions screen then enables **Extract scorecard with AI** (use the "Use example JD" button to try it). Do not paste the key into any committed file.
+
+### Tesseract OCR (only needed for scanned PDFs)
+
+Tesseract is a free open-source OCR engine. Text PDFs and DOCX never need it.
+- **Windows:** `winget install UB-Mannheim.TesseractOCR` (or the installer from the UB Mannheim page). The backend finds `C:\Program Files\Tesseract-OCR\tesseract.exe` automatically; if you installed elsewhere set `TESSERACT_CMD` in `.env`. Also run `pip install -r backend/requirements.txt` so the Python wrapper `pytesseract` is present.
+- **Linux/Docker:** `apt install tesseract-ocr` (the backend Docker image already includes it).
+- Check it: upload `sample_cvs/scanned_amit_verma.pdf`; it should complete and rank instead of failing with "Tesseract is not available".
+
 Optional features:
 - **Scanned PDFs:** install Tesseract (Windows installer from the UB Mannheim build, or `apt install tesseract-ocr`) and make sure `tesseract` is on PATH. Without it, scanned PDFs fail with a clear per-file message; everything else works.
 - **AI JD extraction:** get a free key from an OpenAI-compatible provider (for example Google AI Studio's OpenAI-compatible endpoint or Groq), then set `LLM_API_KEY`, `LLM_MODEL` and `LLM_BASE_URL` before starting the backend. Without them the Requisitions screen says AI is not configured and you can build the scorecard by hand.
@@ -43,7 +62,7 @@ Optional features:
 Run the tests and checks:
 
 ```bash
-cd backend && python -m pytest -q       # 31 tests, LLM and OCR engine mocked
+cd backend && python -m pytest -q       # 32 tests, LLM and OCR engine mocked
 cd frontend && npm run build            # type-check + production build
 docker compose config -q                # validate the compose file
 ```
@@ -66,7 +85,9 @@ Frontend http://localhost:3000, API http://localhost:8000. The backend image ins
 | `DATABASE_URL` | backend | Database connection (defaults to a local SQLite file) |
 | `CORS_ORIGINS` | backend | Comma-separated browser origins allowed to call the API |
 | `UPLOAD_DIR`, `UPLOAD_MAX_MB`, `PROCESS_WORKERS` | backend | Where CVs are stored, size limit, parallel processing threads |
-| `SEED_DEMO`, `DEMO_PASSWORD` | backend | Demo data on or off, and its password |
+| `SEED_DEMO`, `DEMO_PASSWORD` | backend | Demo data on or off, and its password (a custom `DEMO_PASSWORD` hides the one-click demo buttons) |
+| `NEXT_PUBLIC_DEMO_LOGINS` | frontend | `0` hides the one-click demo sign-in buttons (build time) |
+| `TESSERACT_CMD` | backend | Full path to `tesseract.exe` if it is not on PATH (optional) |
 | `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` | backend | JD extraction (optional) |
 | `POSTGRES_PASSWORD` | compose | Password of the compose database |
 | `NEXT_PUBLIC_API_URL` | frontend | Public API URL, **baked in at build time** |

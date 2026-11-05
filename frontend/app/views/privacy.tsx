@@ -1,6 +1,6 @@
 'use client';
 import {useState} from 'react';
-import {Badge, Empty, ErrorBox, Spinner, call, fmtDate, label, send, useApp, useLoad} from '../lib';
+import {Badge, Confirm, Empty, ErrorBox, Spinner, call, fmtDate, label, send, useApp, useLoad} from '../lib';
 import type {Cand} from './candidates';
 
 export default function Privacy() {
@@ -8,12 +8,13 @@ export default function Privacy() {
   const people = useLoad<Cand[]>(() => call(auth.token, '/api/candidates'), []);
   const reqs = useLoad<any[]>(() => call(auth.token, '/api/deletion-requests'), []);
   const log = useLoad<any[]>(() => call(auth.token, '/api/audit'), []);
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(''), [del, setDel] = useState<any>(null);
   const act = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); people.reload(); reqs.reload(); log.reload(); } catch (e: any) { toast(e.message, true); } };
   const name = (id: string) => people.data?.find(p => p.id === id)?.name;
   const rows = (log.data || []).filter(a => !q || `${a.action} ${a.actor} ${a.target} ${name(a.target) || ''}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="stack">
+      {del && <Confirm danger title="Permanently erase this candidate?" text={`${del.candidate}'s personal data and original CV file will be erased. This cannot be undone. The audit log keeps a record that the deletion happened.`} confirmLabel="Erase permanently" onConfirm={() => act(() => send(auth.token, `/api/deletion-requests/${del.id}/complete`, 'POST'), 'Candidate data erased.')} onClose={() => setDel(null)} />}
       <section className="panel">
         <h2>Deletion requests</h2>
         {reqs.loading && !reqs.data ? <Spinner /> : reqs.error ? <ErrorBox msg={reqs.error} retry={reqs.reload} /> : !reqs.data?.length ? <Empty title="No deletion requests" hint="Request deletion from a candidate's profile. Completing a request erases personal data and the original CV file." /> :
@@ -21,7 +22,7 @@ export default function Privacy() {
             <div className="file" key={r.id}>
               <b>{r.candidate}</b><Badge tone={r.status === 'Requested' ? 'warn' : r.status === 'Completed' ? 'good' : 'neutral'}>{r.status}</Badge><small>{fmtDate(r.at + 'Z')}</small>
               {r.status === 'Requested' && <>
-                <button className="danger" onClick={() => confirm(`Permanently erase ${r.candidate}'s personal data and CV file? This cannot be undone.`) && act(() => send(auth.token, `/api/deletion-requests/${r.id}/complete`, 'POST'), 'Candidate data erased.')}>Complete deletion</button>
+                <button className="danger" onClick={() => setDel(r)}>Complete deletion</button>
                 <button className="ghost" onClick={() => act(() => send(auth.token, `/api/deletion-requests/${r.id}/decline`, 'POST'), 'Request declined.')}>Decline</button>
               </>}
             </div>))}

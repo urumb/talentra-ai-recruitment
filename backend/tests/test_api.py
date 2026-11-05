@@ -306,3 +306,17 @@ def test_candidates_start_as_sourced_and_client_refs_are_unique(client, rec, acm
     assert client.get('/api/candidates/CND-91088', headers=rec).json()['stage'] == 'Sourced'
     refs = [x['name'] for x in client.get('/api/client/submissions', headers=acme).json()]
     assert len(refs) == len(set(refs))
+
+
+def test_jd_status_health_and_dotenv(client, rec, monkeypatch, tmp_path):
+    monkeypatch.delenv('LLM_API_KEY', raising=False)
+    assert client.get('/api/jd/status', headers=rec).json() == {'configured': False}
+    monkeypatch.setenv('LLM_API_KEY', 'k'); monkeypatch.setenv('LLM_MODEL', 'm')
+    assert client.get('/api/jd/status', headers=rec).json() == {'configured': True}
+    assert client.get('/api/jd/status').status_code == 401 and client.get('/api/health').json()['status'] == 'ok'
+    # .env loader: values load, comments are stripped, real environment wins
+    env = tmp_path / '.env'; env.write_text('ZZ_NEW=abc  # note\nZZ_KEEP=fromfile\n# c\nZZ_QUOTED="q v"\n', encoding='utf-8')
+    monkeypatch.setenv('ZZ_KEEP', 'real'); monkeypatch.delenv('TALENTRA_NO_DOTENV', raising=False); monkeypatch.delenv('ZZ_NEW', raising=False); monkeypatch.delenv('ZZ_QUOTED', raising=False)
+    main.load_dotenv([env])
+    import os
+    assert os.environ['ZZ_NEW'] == 'abc' and os.environ['ZZ_KEEP'] == 'real' and os.environ['ZZ_QUOTED'] == 'q v'

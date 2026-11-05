@@ -15,6 +15,7 @@ export default function Requisitions() {
   const [title, setTitle] = useState(''), [client, setClient] = useState(''), [loc, setLoc] = useState(''), [desc, setDesc] = useState('');
   const [crit, setCrit] = useState<Crit[]>(DEFAULT);
   const [msg, setMsg] = useState<{t: string; bad?: boolean}>(), [busy, setBusy] = useState('');
+  const ai = useLoad<{configured: boolean}>(() => call(auth.token, '/api/jd/status'), []);
   const total = Math.round(crit.reduce((n, x) => n + (Number(x.weight) || 0), 0) * 100) / 100;
 
   const reset = () => { setChosen(null); setTitle(''); setLoc(''); setDesc(''); setCrit(DEFAULT); setMsg(undefined); };
@@ -59,10 +60,14 @@ export default function Requisitions() {
         <label>Location<input disabled={!!chosen} value={loc} onChange={e => setLoc(e.target.value)} /></label>
         <label>Job description<textarea required disabled={!!chosen} value={desc} onChange={e => setDesc(e.target.value)} placeholder="Paste the full job description" /></label>
         <div className="actions">
-          <button type="button" disabled={desc.trim().length < 20 || busy === 'extract'} onClick={extract}>{busy === 'extract' ? 'Extracting…' : 'Extract scorecard with AI'}</button>
-          <small>Uses the server's configured LLM. If none is configured you can build the scorecard by hand.</small>
+          <button type="button" disabled={desc.trim().length < 20 || busy === 'extract' || ai.data?.configured === false} onClick={extract}>{busy === 'extract' ? 'Extracting…' : 'Extract scorecard with AI'}</button>
+          {!chosen && <button type="button" className="ghost" onClick={() => { setTitle('Senior Java Developer'); setLoc('Noida'); setDesc('Senior Java Developer, 5-8 years, Spring Boot, Noida, notice up to 60 days. Must have Java, Spring Boot and microservices. Budget up to 28 LPA.'); }}>Use example JD</button>}
+          <small>{ai.data?.configured === false ? 'AI drafting is off: add LLM_API_KEY and LLM_MODEL to your .env and restart the API. You can still build the scorecard by hand.' : 'AI drafts the scorecard; you review and edit every line before saving.'}</small>
         </div>
         <h3>Scorecard <span className={'total ' + (total === 100 ? 'ok' : 'off')}>{total} / 100</span></h3>
+        <div className="wbar" aria-hidden>{crit.map((x, i) => Number(x.weight) > 0 && <i key={i} className={'w' + (i % 6)} style={{width: Math.min(100, Number(x.weight)) / Math.max(total, 100) * 100 + '%'}} title={`${x.label}: ${x.weight}`} />)}</div>
+        {total !== 100 && <small className="error">Weights must add up to 100 before you can save ({total > 100 ? 'remove' : 'add'} {Math.abs(100 - total)}).</small>}
+        <div className="criterion head" aria-hidden><small>Criterion</small><small>Type</small><small>Weight</small><small>Requirement</small><span /></div>
         {crit.map((x, i) => (
           <div className="criterion" key={i}>
             <input aria-label="Criterion name" value={x.label} onChange={e => upd(i, {label: e.target.value})} />

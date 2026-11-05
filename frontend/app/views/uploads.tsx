@@ -91,7 +91,7 @@ function BatchDetail({id, onChange, openCandidate}: {id: string; onChange: () =>
       <div className="toolbar"><h2>Processing status</h2>{(c.failed || 0) > 0 && <button onClick={retryAll}>Retry all failed</button>}</div>
       <div className="bar" aria-label="Processing progress"><i style={{width: (data.total ? finished * 100 / data.total : 0) + '%'}} /><span>{finished} of {data.total} processed{active(c) ? ' · working…' : ''}</span></div>
       <div className="metrics five">{tiles.map(([k, v, tone]) => <article key={k} className={tone}><span>{k}</span><b>{v}</b></article>)}</div>
-      <div className="chips">{['all', 'processing', 'completed', 'failed', 'duplicate'].map(f => <button key={f} className={'chip ' + (filter === f ? 'on' : '')} onClick={() => setFilter(f)}>{f}</button>)}</div>
+      <div className="chips">{['all', 'processing', 'completed', 'failed', 'duplicate'].map(f => <button key={f} className={'chip cap ' + (filter === f ? 'on' : '')} onClick={() => setFilter(f)}>{f}</button>)}</div>
       {!shown.length ? <Empty title="No documents in this view" /> : shown.map(f => (
         <div className="file" key={f.id}>
           <b>{f.filename}</b><Badge tone={toneOf(f.status)}>{f.status.replaceAll('_', ' ')}</Badge>

@@ -95,3 +95,54 @@ export function DocPreview({id, filename, onLoaded}: {id: string; filename?: str
   if (type === 'application/pdf') return <iframe className="pdf" src={url} title="Original CV" />;
   return <div className="state"><b>Word documents cannot be previewed in the browser.</b><a className="btn" href={url} download={filename || 'cv.docx'}>Download original</a></div>;
 }
+
+export const pl = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+/** Circular score. Deliberately one neutral hue (no red/green) so a low score never reads as a verdict. */
+export function ScoreRing({score, size = 52}: {score: number; size?: number}) {
+  const r = (size - 8) / 2, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, score));
+  return (
+    <span className="ring" style={{width: size, height: size}} role="img" aria-label={`Score ${score} out of 100`}>
+      <svg width={size} height={size} aria-hidden><circle cx={size / 2} cy={size / 2} r={r} className="ring-bg" /><circle cx={size / 2} cy={size / 2} r={r} className="ring-fg" strokeDasharray={`${(v / 100) * c} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} /></svg>
+      <b style={{fontSize: size * 0.3}}>{Math.round(score)}</b>
+    </span>
+  );
+}
+
+const ICONS: Record<string, string> = {
+  home: 'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10',
+  doc: 'M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6',
+  upload: 'M12 16V4m0 0l-4 4m4-4l4 4M5 20h14',
+  users: 'M16 19v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9.5 10a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM21 19v-1a4 4 0 00-3-3.9M16 3.1a3.5 3.5 0 010 6.8',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  kanban: 'M4 4h5v16H4zM10 4h5v10h-5zM16 4h4v13h-4z',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4',
+  chart: 'M4 20V10M10 20V4M16 20v-8M22 20H2',
+  out: 'M9 21H5V3h4M16 17l5-5-5-5M21 12H9',
+  check: 'M5 13l4 4L19 7',
+};
+export function Icon({name}: {name: string}) {
+  return <svg className="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICONS[name] || ICONS.doc} /></svg>;
+}
+
+/** Right-hand slide-over panel. */
+export function Drawer({title, onClose, children}: {title: string; onClose: () => void; children: React.ReactNode}) {
+  useEffect(() => { const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose(); window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
+  return (
+    <div className="scrim" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <div className="drawer" role="dialog" aria-modal aria-label={title}>
+        <button className="close" onClick={onClose} aria-label="Close">×</button>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function Confirm({title, text, confirmLabel, danger, onConfirm, onClose}: {title: string; text: string; confirmLabel: string; danger?: boolean; onConfirm: () => void; onClose: () => void}) {
+  return (
+    <Modal title={title} onClose={onClose}>
+      <p className="muted">{text}</p>
+      <div className="actions end"><button className="ghost" onClick={onClose}>Cancel</button><button className={danger ? 'danger' : ''} onClick={() => { onConfirm(); onClose(); }}>{confirmLabel}</button></div>
+    </Modal>
+  );
+}
