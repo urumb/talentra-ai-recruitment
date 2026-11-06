@@ -320,3 +320,11 @@ def test_jd_status_health_and_dotenv(client, rec, monkeypatch, tmp_path):
     main.load_dotenv([env])
     import os
     assert os.environ['ZZ_NEW'] == 'abc' and os.environ['ZZ_KEEP'] == 'real' and os.environ['ZZ_QUOTED'] == 'q v'
+
+
+def test_demo_flag_only_with_documented_password(client, monkeypatch):
+    monkeypatch.delenv('DEMO_PASSWORD', raising=False); monkeypatch.setenv('SEED_DEMO', '1')
+    assert client.get('/api/health').json()['demo'] is True
+    monkeypatch.setenv('DEMO_PASSWORD', 'DemoPass123!'); assert client.get('/api/health').json()['demo'] is True  # compose always sets it
+    monkeypatch.setenv('DEMO_PASSWORD', 'something-else'); assert client.get('/api/health').json()['demo'] is False
+    monkeypatch.setenv('DEMO_PASSWORD', 'DemoPass123!'); monkeypatch.setenv('SEED_DEMO', '0'); assert client.get('/api/health').json()['demo'] is False

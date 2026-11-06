@@ -62,7 +62,7 @@ Optional features:
 Run the tests and checks:
 
 ```bash
-cd backend && python -m pytest -q       # 32 tests, LLM and OCR engine mocked
+cd backend && python -m pytest -q       # 33 tests, LLM and OCR engine mocked
 cd frontend && npm run build            # type-check + production build
 docker compose config -q                # validate the compose file
 ```
@@ -75,6 +75,8 @@ docker compose up --build
 ```
 
 Frontend http://localhost:3000, API http://localhost:8000. The backend image installs Tesseract. Volumes: `postgres_data` and `uploads`.
+
+The backend image and the PostgreSQL setup were verified (including a 500-file batch). If `npm ci` fails during the frontend build with `ECONNRESET` or "unable to verify the first certificate", your network is intercepting HTTPS to `registry.npmjs.org` (common on campus or corporate Wi-Fi). Build on another network, or pass a mirror: `docker compose build --build-arg NPM_REGISTRY=https://registry.yarnpkg.com frontend`. The lockfile hashes still verify every package. Running the frontend with `npm run dev` (above) avoids Docker for it.
 
 ## Environment variables (names only; never commit values)
 

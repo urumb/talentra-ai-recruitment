@@ -57,14 +57,28 @@ pnpm-debug.log*
 *.sqlite
 *.sqlite3
 
-# Uploaded documents
-uploads/
-# Talentra runtime data
+# Uploaded documents and runtime data (CVs are personal data: never commit)
 uploads/
 live_uploads/
-*.db
-.env
+backend/uploads/
 
-# Local submission bundle
+# Secrets and keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+credentials*.json
+
+# Local bundles, scratch files and backups
 submission/
 *.zip
+*.bak
+*.tmp
+*.orig
+*.rej
+.run_*.log

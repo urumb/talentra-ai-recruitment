@@ -523,7 +523,7 @@ def startup():
 @app.get('/api/health')
 def health():
     # demo = the public demo accounts exist and use the documented password, so the sign-in page may offer one-click demo logins
-    return {'status': 'ok', 'demo': os.getenv('SEED_DEMO', '1') != '0' and not os.getenv('DEMO_PASSWORD')}
+    return {'status': 'ok', 'demo': os.getenv('SEED_DEMO', '1') != '0' and os.getenv('DEMO_PASSWORD', 'DemoPass123!') == 'DemoPass123!'}
 
 
 @app.post('/api/auth/login')
